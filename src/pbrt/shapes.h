@@ -8,6 +8,7 @@
 #include <pbrt/pbrt.h>
 
 #include <pbrt/base/shape.h>
+#include <pbrt/bicubicpatch.h>
 #include <pbrt/interaction.h>
 #include <pbrt/ray.h>
 #include <pbrt/util/buffercache.h>
