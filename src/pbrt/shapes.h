@@ -8,7 +8,6 @@
 #include <pbrt/pbrt.h>
 
 #include <pbrt/base/shape.h>
-#include <pbrt/bicubicpatch.h>
 #include <pbrt/interaction.h>
 #include <pbrt/ray.h>
 #include <pbrt/util/buffercache.h>
@@ -1261,6 +1260,52 @@ class Curve {
     // Curve Private Members
     const CurveCommon *common;
     Float uMin, uMax;
+};
+
+// BicubicPatch Definition
+class BicubicPatch {
+  public:
+    // BicubicPatch Public Methods
+    static BicubicPatch *Create(const Transform *renderFromObject,
+                                bool reverseOrientation,
+                                const ParameterDictionary &parameters,
+                                const FileLoc *loc, Allocator alloc);
+
+    std::string ToString() const;
+
+    BicubicPatch(const Transform *renderFromObject, bool reverseOrientation,
+                 const pstd::array<Point3f, 16> &points);
+
+    PBRT_CPU_GPU
+    Bounds3f Bounds() const;
+
+    PBRT_CPU_GPU
+    DirectionCone NormalBounds() const;
+
+    pstd::optional<ShapeIntersection> Intersect(const Ray &ray,
+                                                Float tMax = Infinity) const;
+
+    bool IntersectP(const Ray &ray, Float tMax = Infinity) const;
+    
+    PBRT_CPU_GPU
+    Float Area() const;
+
+    PBRT_CPU_GPU
+    pstd::optional<ShapeSample> Sample(Point2f u) const;
+
+    PBRT_CPU_GPU
+    Float PDF(const Interaction &) const;
+
+    PBRT_CPU_GPU
+    pstd::optional<ShapeSample> Sample(const ShapeSampleContext &ctx, Point2f u) const;
+
+    PBRT_CPU_GPU
+    Float PDF(const ShapeSampleContext &ctx, Vector3f wi) const;
+
+  private:
+    // Bicubic Private Members
+    bool reverseOrientation, transformSwapsHandedness;
+    pstd::array<Point3f, 16> points;
 };
 
 // BilinearPatch Declarations

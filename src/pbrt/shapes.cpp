@@ -1378,6 +1378,7 @@ std::string BilinearPatch::ToString() const {
 STAT_COUNTER("Geometry/Spheres", nSpheres);
 STAT_COUNTER("Geometry/Cylinders", nCylinders);
 STAT_COUNTER("Geometry/Disks", nDisks);
+STAT_COUNTER("Geometry/BicubicPatches", nBicubicPatches);
 STAT_COUNTER("Geometry/Triangles added from displacement mapping", displacedTrisDelta);
 
 pstd::vector<Shape> Shape::Create(
@@ -1401,6 +1402,10 @@ pstd::vector<Shape> Shape::Create(
         shapes = {Disk::Create(renderFromObject, objectFromRender, reverseOrientation,
                                parameters, loc, alloc)};
         ++nDisks;
+    } else if (name == "bicubicpatch") {
+        shapes = {BicubicPatch::Create(renderFromObject, reverseOrientation,
+                                       parameters, loc, alloc)}
+        ++nBicubicPatches;
     } else if (name == "bilinearmesh") {
         BilinearPatchMesh *mesh = BilinearPatch::CreateMesh(
             renderFromObject, reverseOrientation, parameters, loc, alloc);

@@ -534,7 +534,6 @@ set (PBRT_SOURCE
   )
 
 set (PBRT_SOURCE_HEADERS
-  src/pbrt/bicubicpatch.h
   src/pbrt/bsdf.h
   src/pbrt/bssrdf.h
   src/pbrt/bxdfs.h
