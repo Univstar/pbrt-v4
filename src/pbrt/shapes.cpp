@@ -1401,8 +1401,8 @@ pstd::vector<Shape> Shape::Create(
         shapes = {Disk::Create(renderFromObject, objectFromRender, reverseOrientation,
                                parameters, loc, alloc)};
         ++nDisks;
-    } else if (name == "bicubicpatch") {
-        shapes = {BicubicPatch::Create(renderFromObject, reverseOrientation,
+    } else if (name == "bezierpatch") {
+        shapes = {BezierPatch::Create(renderFromObject, reverseOrientation,
                                        parameters, loc, alloc)};
     } else if (name == "bilinearmesh") {
         BilinearPatchMesh *mesh = BilinearPatch::CreateMesh(

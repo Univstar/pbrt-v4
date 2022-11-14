@@ -508,7 +508,7 @@ endif()
 # On to pbrt...
 
 set (PBRT_SOURCE
-  src/pbrt/bicubicpatch.cpp
+  src/pbrt/bezierpatch.cpp
   src/pbrt/bsdf.cpp
   src/pbrt/bssrdf.cpp
   src/pbrt/bxdfs.cpp
@@ -692,7 +692,7 @@ if (PBRT_CUDA_ENABLED)
   )
 
   set_source_files_properties (
-   src/pbrt/bicubicpatch.cpp
+   src/pbrt/bezierpatch.cpp
    src/pbrt/bsdf.cpp
    src/pbrt/bssrdf.cpp
    src/pbrt/bxdfs.cpp
