@@ -1274,7 +1274,8 @@ class BicubicPatch {
     std::string ToString() const;
 
     BicubicPatch(const Transform *renderFromObject, bool reverseOrientation,
-                 const pstd::array<Point3f, 16> &points);
+                 const pstd::array<Point3f, 16> &points,
+                 const Point2f &uvMin, const Point2f &uvMax);
 
     PBRT_CPU_GPU
     Bounds3f Bounds() const;
@@ -1303,9 +1304,16 @@ class BicubicPatch {
     Float PDF(const ShapeSampleContext &ctx, Vector3f wi) const;
 
   private:
+    // Bicubic Private Methods
+    bool IntersectRay(const Ray &ray, Float tMax,
+                      pstd::optional<ShapeIntersection> *si) const;
+    bool GreedyIntersect(const Ray &ray, Float tMax, pstd::array<Point3f, 16> const & cp,
+                         pstd::optional<ShapeIntersection> *si) const;
+    
     // Bicubic Private Members
     bool reverseOrientation, transformSwapsHandedness;
     pstd::array<Point3f, 16> points;
+    Point2f uvMin, uvMax;
 };
 
 // BilinearPatch Declarations
