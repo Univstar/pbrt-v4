@@ -1274,8 +1274,8 @@ class BezierPatch {
     std::string ToString() const;
 
     BezierPatch(const Transform *renderFromObject, bool reverseOrientation,
-                const pstd::array<Point3f, 16> &cp,
-                const Point2f &uvMin, const Point2f &uvMax);
+                const pstd::span<const Point3f> cp,
+                const Bounds2f &uvRect);
 
     PBRT_CPU_GPU
     Bounds3f Bounds() const;
@@ -1287,6 +1287,11 @@ class BezierPatch {
                                                 Float tMax = Infinity) const;
 
     bool IntersectP(const Ray &ray, Float tMax = Infinity) const;
+
+    SurfaceInteraction InteractionFromIntersection(const Ray &ray, Bounds2f uvB) const;
+                                                   
+    SurfaceInteraction InteractionFromIntersection(const Ray &ray,
+                                                   Point2f uv, Vector3f pError) const;
     
     PBRT_CPU_GPU
     Float Area() const;
@@ -1307,13 +1312,13 @@ class BezierPatch {
     // Bezier Private Methods
     bool IntersectRay(const Ray &ray, Float tMax,
                       pstd::optional<ShapeIntersection> *si) const;
-    bool GreedyIntersect(const Ray &ray, Float tMax, pstd::array<Point3f, 16> const & cpRay,
+    bool GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
                          pstd::optional<ShapeIntersection> *si) const;
     
     // Bezier Private Members
     bool reverseOrientation, transformSwapsHandedness;
     pstd::array<Point3f, 16> cp;
-    Point2f uvMin, uvMax;
+    Bounds2f uvRect;
 };
 
 // BilinearPatch Declarations
