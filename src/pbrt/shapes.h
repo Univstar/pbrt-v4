@@ -1287,11 +1287,8 @@ class BezierPatch {
                                                 Float tMax = Infinity) const;
 
     bool IntersectP(const Ray &ray, Float tMax = Infinity) const;
-
-    SurfaceInteraction InteractionFromIntersection(const Ray &ray, Bounds2f uvB) const;
                                                    
-    SurfaceInteraction InteractionFromIntersection(const Ray &ray,
-                                                   Point2f uv, Vector3f pError) const;
+    SurfaceInteraction InteractionFromIntersection(const Ray &ray, Point2f uv) const;
     
     PBRT_CPU_GPU
     Float Area() const;
@@ -1312,13 +1309,18 @@ class BezierPatch {
     // Bezier Private Methods
     bool IntersectRay(const Ray &ray, Float tMax,
                       pstd::optional<ShapeIntersection> *si) const;
+
     bool GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
                          pstd::optional<ShapeIntersection> *si) const;
     
+    bool GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
+                               pstd::optional<ShapeIntersection> *si) const;
+
     // Bezier Private Members
     bool reverseOrientation, transformSwapsHandedness;
     pstd::array<Point3f, 16> cp;
     Bounds2f uvRect;
+    Point3f cpAbsSum;
 };
 
 // BilinearPatch Declarations

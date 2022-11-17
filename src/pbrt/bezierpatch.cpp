@@ -36,6 +36,8 @@
 
 namespace pbrt {
 
+static constexpr Float MinDeltaUV = 1e-4f;
+
 // DividedPatch definition
 struct DividedPatch {
     // Bezier coordinates bounds for the divided patch, different from texture coordinates
@@ -134,6 +136,10 @@ PBRT_CPU_GPU static bool OverlapsRay(const Bounds3f &bounds, Float rayLength) {
     return x && y && z;
 }
 
+static Float NewtonSearch(const pstd::span<const Point3f> cp, Point2f &uv) {
+    return Infinity;
+}
+
 STAT_PERCENT("Intersections/Ray-bezier patch intersection tests", nBezierPatchHits, nBezierPatchTests);
 STAT_COUNTER("Geometry/BezierPatches", nBezierPatches);
 
@@ -172,9 +178,12 @@ BezierPatch::BezierPatch(const Transform *renderFromObject, bool reverseOrientat
                          const Bounds2f &uvRect)
     : reverseOrientation(reverseOrientation),
       transformSwapsHandedness(renderFromObject->SwapsHandedness()),
-      uvRect(uvRect) {
-    for (size_t i = 0; i < 16; ++i)
+      uvRect(uvRect),
+      cpAbsSum(Point3f(0, 0, 0)) {
+    for (size_t i = 0; i < 16; ++i) {
         this->cp[i] = (*renderFromObject)(cp[i]);
+        cpAbsSum += Abs(this->cp[i]);
+    }
     ++nBezierPatches;
 }
 
@@ -196,17 +205,13 @@ bool BezierPatch::IntersectP(const Ray &ray, Float tMax) const {
     return IntersectRay(ray, tMax, nullptr);
 }
 
-SurfaceInteraction BezierPatch::InteractionFromIntersection(const Ray &ray, Bounds2f uvB) const {
-    auto pBounds = GetBounds(DivideBezierPatch(cp, uvB));
-    return InteractionFromIntersection(ray, (uvB.pMin + uvB.pMax) / 2, pBounds.Diagonal());
-}
-
 SurfaceInteraction BezierPatch::InteractionFromIntersection(const Ray &ray,
-                                                            Point2f uv, Vector3f pError) const {
+                                                            Point2f uv) const {
     const Vector2f delta = uvRect.Diagonal();
     Vector3f dpdu;
     Vector3f dpdv;
     const Point3f p = EvaluateBicubicBezier(cp, uv, &dpdu, &dpdv);
+    const Vector3f pError = gamma(18) * Vector3f(cpAbsSum);
     dpdu /= delta.x, dpdv /= delta.y;
     Normal3f dndu(0, 0, 0);
     Normal3f dndv(0, 0, 0);
@@ -265,7 +270,6 @@ bool BezierPatch::IntersectRay(const Ray &ray, Float tMax,
 
 bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
                                   pstd::optional<ShapeIntersection> *si) const {
-    constexpr Float threshold = 1e-4f;
     // Initialize the heap
     std::priority_queue<DividedPatch> heap;
     heap.emplace(Bounds2f(Point2f(0, 0), Point2f(1, 1)));
@@ -277,11 +281,14 @@ bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const P
         const auto cur = heap.top();
         heap.pop();
 
+        // Set uv of the middle point
+        Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
+
         // Decide whether the algorithm converges
-        if (MaxComponentValue(cur.uvB.Diagonal()) < threshold) {
+        if (MaxComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) {
             if (si != nullptr) {
                 const Float tHit = cur.zLower / Length(ray.d);
-                const auto intr = InteractionFromIntersection(ray, cur.uvB);
+                const auto intr = InteractionFromIntersection(ray, uvMid);
                 *si = ShapeIntersection{intr, tHit};
             }
 #ifndef PBRT_IS_GPU_CODE
@@ -289,8 +296,6 @@ bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const P
 #endif
             return true;
         }
-        // Set uv of the middle point
-        Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
 
         // Divide the current patch into four pieces
         for (size_t i = 0; i < 4; ++i) {
@@ -306,6 +311,57 @@ bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const P
     }
 
     return false;
+}
+
+bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
+                                        pstd::optional<ShapeIntersection> *si) const {
+    // Initialize the heap
+    std::priority_queue<DividedPatch> heap;
+    heap.emplace(Bounds2f(Point2f(0, 0), Point2f(1, 1)));
+    // Initialize variables
+    const Float rayLength = Length(ray.d) * tMax;
+    Float zOpt = Infinity;
+    Point2f optUV(-1, -1);
+    
+    // Greedily search intersection points
+    while (!heap.empty()) {
+        const auto cur = heap.top();
+        // Break if optimized.
+        if (cur.zLower >= zOpt) break;
+        heap.pop();
+
+        // Set uv of the middle point
+        Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
+
+        // Decide whether the Newton algorithm converges
+        if (const Float zTent = NewtonSearch(cpRay, uvMid); zTent < Infinity) {
+            if (si == nullptr) return true;
+            if (zTent < zOpt) zOpt = zTent, optUV = uvMid;
+        }
+        uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
+
+        // Divide the current patch into four pieces
+        for (size_t i = 0; i < 4; ++i) {
+            Bounds2f divUvB(cur.uvB.Corner(i), uvMid);
+
+            auto divCpRay = DivideBezierPatch(cpRay, divUvB);
+            // Test ray against bound of divided patch
+            Bounds3f bounds = GetBounds(divCpRay);
+            if (!OverlapsRay(bounds, rayLength)) continue;
+            // Push new patch into heap
+            heap.emplace(divUvB, bounds.pMin.z);
+        }
+    }
+
+    if (zOpt < Infinity) {
+        const Float tHit = zOpt / Length(ray.d);
+        const auto intr = InteractionFromIntersection(ray, optUV);
+        *si = ShapeIntersection{intr, tHit};
+#ifndef PBRT_IS_GPU_CODE
+        ++nBezierPatchHits;
+#endif
+    }
+    return zOpt < Infinity;
 }
 
 }
