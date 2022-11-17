@@ -51,50 +51,47 @@ struct DividedPatch {
 
 // Bicubic Bezier Functions
 
-PBRT_CPU_GPU static Point3f BlossomBezierCurve(pstd::span<const Point3f> cp, Float u0, Float u1, Float u2) {
-    Point3f a[3] = {Lerp(u0, cp[0], cp[1]), Lerp(u0, cp[1], cp[2]), Lerp(u0, cp[2], cp[3])};
-    Point3f b[2] = {Lerp(u1, a[0], a[1]), Lerp(u1, a[1], a[2])};
-    return Lerp(u2, b[0], b[1]);
-}
-
 PBRT_CPU_GPU static Point3f BlossomBicubicBezier(pstd::span<const Point3f> cp, Point2f uv0, Point2f uv1, Point2f uv2) {
-    Point3f q[4];
-    for (int i = 0; i < 4; ++i) {
-        q[i] = BlossomBezierCurve(cp.subspan(i * 4, 4), uv0.y, uv1.y, uv2.y);
+    pstd::array<Point3f, 4> q;
+    for (size_t i = 0; i < 4; ++i) {
+        q[i] = BlossomCubicBezier(cp.subspan(i * 4, 4), uv0.y, uv1.y, uv2.y);
     }
-    return BlossomBezierCurve(q, uv0.x, uv1.x, uv2.x);
+    return BlossomCubicBezier<Point3f>(q, uv0.x, uv1.x, uv2.x);
 }
 
 PBRT_CPU_GPU static Point3f EvaluateBicubicBezier(pstd::span<const Point3f> cp, Point2f uv, Vector3f *dpdu = nullptr, Vector3f *dpdv = nullptr) {
     if (dpdu && dpdv) {
-        Point3f cp_u[4], cp_v[4];
-        for (int i = 0; i < 4; ++i) {
-            cp_u[i] = BlossomBezierCurve(cp.subspan(i * 4, 4), uv.y, uv.y, uv.y);
-            Point3f a[3] = {Lerp(uv.x, cp[i], cp[i + 4]),
-                            Lerp(uv.x, cp[i + 4], cp[i + 8]),
-                            Lerp(uv.x, cp[i + 8], cp[i + 12])};
-            Point3f b[2] = {Lerp(uv.x, a[0], a[1]), Lerp(uv.x, a[1], a[2])};
-            cp_v[i] = Lerp(uv.x, b[0], b[1]);
+        pstd::array<Point3f, 4> cpU, cpV;
+        for (size_t i = 0; i < 4; ++i) {
+            cpU[i] = BlossomCubicBezier(cp.subspan(i * 4, 4), uv.y, uv.y, uv.y);
+            pstd::array<Point3f, 3> a = {Lerp(uv.x, cp[i], cp[i + 4]),
+                                         Lerp(uv.x, cp[i + 4], cp[i + 8]),
+                                         Lerp(uv.x, cp[i + 8], cp[i + 12])};
+            pstd::array<Point3f, 2> b = {Lerp(uv.x, a[0], a[1]),
+                                         Lerp(uv.x, a[1], a[2])};
+            cpV[i] = Lerp(uv.x, b[0], b[1]);
         }
-        Point3f cp_u1[3] = {Lerp(uv.x, cp_u[0], cp_u[1]), Lerp(uv.x, cp_u[1], cp_u[2]),
-                            Lerp(uv.x, cp_u[2], cp_u[3])};
-        Point3f cp_u2[2] = {Lerp(uv.x, cp_u1[0], cp_u1[1]),
-                            Lerp(uv.x, cp_u1[1], cp_u1[2])};
-        if (LengthSquared(cp_u2[1] - cp_u2[0]) > 0)
-            *dpdu = 3 * (cp_u2[1] - cp_u2[0]);
+        pstd::array<Point3f, 3> cpU1 = {Lerp(uv.x, cpU[0], cpU[1]),
+                                        Lerp(uv.x, cpU[1], cpU[2]),
+                                        Lerp(uv.x, cpU[2], cpU[3])};
+        pstd::array<Point3f, 2> cpU2 = {Lerp(uv.x, cpU1[0], cpU1[1]),
+                                        Lerp(uv.x, cpU1[1], cpU1[2])};
+        if (LengthSquared(cpU2[1] - cpU2[0]) > 0)
+            *dpdu = 3 * (cpU2[1] - cpU2[0]);
         else {
-            *dpdu = cp_u[3] - cp_u[0];
+            *dpdu = cpU[3] - cpU[0];
         }
-        Point3f cp_v1[3] = {Lerp(uv.y, cp_v[0], cp_v[1]), Lerp(uv.y, cp_v[1], cp_v[2]),
-                            Lerp(uv.y, cp_v[2], cp_v[3])};
-        Point3f cp_v2[2] = {Lerp(uv.y, cp_v1[0], cp_v1[1]),
-                            Lerp(uv.y, cp_v1[1], cp_v1[2])};
-        if (LengthSquared(cp_v2[1] - cp_v2[0]) > 0)
-            *dpdv = 3 * (cp_v2[1] - cp_v2[0]);
+        pstd::array<Point3f, 3> cpV1 = {Lerp(uv.y, cpV[0], cpV[1]),
+                                        Lerp(uv.y, cpV[1], cpV[2]),
+                                        Lerp(uv.y, cpV[2], cpV[3])};
+        pstd::array<Point3f, 2> cpV2 = {Lerp(uv.y, cpV1[0], cpV1[1]),
+                                        Lerp(uv.y, cpV1[1], cpV1[2])};
+        if (LengthSquared(cpV2[1] - cpV2[0]) > 0)
+            *dpdv = 3 * (cpV2[1] - cpV2[0]);
         else {
-            *dpdv = cp_v[3] - cp_v[0];
+            *dpdv = cpV[3] - cpV[0];
         }
-        return BlossomBezierCurve(cp_u, uv.x, uv.x, uv.x);
+        return BlossomCubicBezier<Point3f>(cpU, uv.x, uv.x, uv.x);
     } else {
         return BlossomBicubicBezier(cp, uv, uv, uv);
     }
@@ -105,7 +102,6 @@ PBRT_CPU_GPU static Point3f EvaluateBicubicBezier(pstd::span<const Point3f> cp, 
 PBRT_CPU_GPU static pstd::array<Point3f, 16> DivideBezierPatch(pstd::span<const Point3f> cp,
                                                                const Bounds2f &uvB) {
     pstd::array<Point3f, 16> divCp;
-    // clang-format off
     divCp[0]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(0), uvB.Corner(0));
     divCp[1]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(0), uvB.Corner(2));
     divCp[2]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(2), uvB.Corner(2));
@@ -123,7 +119,6 @@ PBRT_CPU_GPU static pstd::array<Point3f, 16> DivideBezierPatch(pstd::span<const 
     divCp[14] = BlossomBicubicBezier(cp, uvB.Corner(1), uvB.Corner(3), uvB.Corner(3));
     divCp[15] = BlossomBicubicBezier(cp, uvB.Corner(3), uvB.Corner(3), uvB.Corner(3));
     return divCp;
-    // clang-format on
 }
 
 PBRT_CPU_GPU static Bounds3f GetBounds(const pstd::span<const Point3f> cp) {
@@ -212,6 +207,7 @@ SurfaceInteraction BezierPatch::InteractionFromIntersection(const Ray &ray,
     Vector3f dpdu;
     Vector3f dpdv;
     const Point3f p = EvaluateBicubicBezier(cp, uv, &dpdu, &dpdv);
+    dpdu /= delta.x, dpdv /= delta.y;
     Normal3f dndu(0, 0, 0);
     Normal3f dndv(0, 0, 0);
     bool flipNormal = reverseOrientation ^ transformSwapsHandedness;
