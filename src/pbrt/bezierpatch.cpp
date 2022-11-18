@@ -42,7 +42,8 @@ static constexpr size_t MaxNewtonIterations = 5;
 static constexpr Float NewtonConvergenceThreshold = 1e-6f;
 
 static constexpr size_t CuttingNeighbor[4] = { 1, 3, 0, 2 };
-static constexpr Float CuttingRatio = .05f;
+static constexpr Float CuttingRatioPositive = .2f;
+static constexpr Float CuttingRatioNegative = .05f;
 
 // DividedPatch definition
 struct DividedPatch {
@@ -363,7 +364,7 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
                 zOpt = zTent, optUV = uvMid;
             }
             if (zTent < Infinity) {
-                const Vector2f delta = cur.uvB.Diagonal() * CuttingRatio * .5f;
+                const Vector2f delta = cur.uvB.Diagonal() * (zTent > 0 ? CuttingRatioPositive : CuttingRatioNegative) * .5f;
                 cutUvB = pbrt::Intersect(Bounds2f(uvMid - delta, uvMid + delta), cur.uvB);
             }
         }
