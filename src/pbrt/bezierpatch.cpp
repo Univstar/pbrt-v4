@@ -36,7 +36,9 @@
 
 namespace pbrt {
 
-static constexpr Float MinDeltaUV = 1e-4f;
+static constexpr Float MinDeltaUV = 1e-5f;
+static constexpr size_t MaxNewtonIterations = 5;
+static constexpr Float NewtonConvergenceThreshold = 1e-6f;
 
 // DividedPatch definition
 struct DividedPatch {
@@ -45,7 +47,7 @@ struct DividedPatch {
 
     Float zLower;
 
-    DividedPatch(const Bounds2f &uvB, Float zLower = 0)
+    DividedPatch(const Bounds2f &uvB, Float zLower = 0)                       
         : uvB(uvB), zLower(zLower) {}
     
     bool operator<(const DividedPatch &o) const { return zLower > o.zLower; }
@@ -136,8 +138,21 @@ PBRT_CPU_GPU static bool OverlapsRay(const Bounds3f &bounds, Float rayLength) {
     return x && y && z;
 }
 
-static Float NewtonSearch(const pstd::span<const Point3f> cp, Point2f &uv) {
-    return Infinity;
+static Float NewtonSearch(const pstd::span<const Point3f> cpRay, Point2f &uv) {
+    for (size_t i = 0; i < MaxNewtonIterations; ++i) {
+        Vector3f dpdu;
+        Vector3f dpdv;
+        const Point3f p = EvaluateBicubicBezier(cpRay, uv, &dpdu, &dpdv);
+        const Float determinant = dpdu.x * dpdv.y - dpdv.x * dpdu.y;
+        const Vector2f delta = Vector2f(dpdv.x * p.y - dpdv.y * p.x, dpdu.y * p.x - dpdu.x * p.y) / determinant;
+        uv += delta;
+    }
+    const Point3f p = EvaluateBicubicBezier(cpRay, uv);
+    if (p.x * p.x + p.y * p.y < NewtonConvergenceThreshold * NewtonConvergenceThreshold) {
+        return p.z > 0 ? p.z : Infinity;
+    } else {
+        return Infinity;
+    }
 }
 
 STAT_PERCENT("Intersections/Ray-bezier patch intersection tests", nBezierPatchHits, nBezierPatchTests);
@@ -265,7 +280,7 @@ bool BezierPatch::IntersectRay(const Ray &ray, Float tMax,
     if (!OverlapsRay(bounds, Length(ray.d) * tMax))
         return false;
     
-    return GreedyIntersect(ray, tMax, cpRay, si);
+    return GreedyIntersectNewton(ray, tMax, cpRay, si);
 }
 
 bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
@@ -333,10 +348,17 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
         // Set uv of the middle point
         Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
 
-        // Decide whether the Newton algorithm converges
-        if (const Float zTent = NewtonSearch(cpRay, uvMid); zTent < Infinity) {
+        // Cutoff too small patch
+        if (MaxComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) {
             if (si == nullptr) return true;
-            if (zTent < zOpt) zOpt = zTent, optUV = uvMid;
+            zOpt = cur.zLower, optUV = uvMid;
+            break;
+        }
+
+        // Decide whether the Newton algorithm converges
+        if (const Float zTent = NewtonSearch(cpRay, uvMid); zTent < zOpt && Inside(uvMid, cur.uvB)) {
+            if (si == nullptr) return true;
+            zOpt = zTent, optUV = uvMid;
         }
         uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
 
