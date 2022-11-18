@@ -37,8 +37,12 @@
 namespace pbrt {
 
 static constexpr Float MinDeltaUV = 1e-5f;
+
 static constexpr size_t MaxNewtonIterations = 5;
 static constexpr Float NewtonConvergenceThreshold = 1e-6f;
+
+static constexpr size_t CuttingNeighbor[4] = { 1, 3, 0, 2 };
+static constexpr Float CuttingRatio = .05f;
 
 // DividedPatch definition
 struct DividedPatch {
@@ -149,7 +153,7 @@ static Float NewtonSearch(const pstd::span<const Point3f> cpRay, Point2f &uv) {
     }
     const Point3f p = EvaluateBicubicBezier(cpRay, uv);
     if (p.x * p.x + p.y * p.y < NewtonConvergenceThreshold * NewtonConvergenceThreshold) {
-        return p.z > 0 ? p.z : Infinity;
+        return p.z;
     } else {
         return Infinity;
     }
@@ -344,27 +348,30 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
         // Break if optimized.
         if (cur.zLower >= zOpt) break;
         heap.pop();
+        // Break if patch is too small
+        if (MinComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) break;
 
         // Set uv of the middle point
         Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
-
-        // Cutoff too small patch
-        if (MaxComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) {
-            if (si == nullptr) return true;
-            zOpt = cur.zLower, optUV = uvMid;
-            break;
-        }
+        // Set cutoff bounds
+        Bounds2f cutUvB(uvMid);
 
         // Decide whether the Newton algorithm converges
-        if (const Float zTent = NewtonSearch(cpRay, uvMid); zTent < zOpt && Inside(uvMid, cur.uvB)) {
-            if (si == nullptr) return true;
-            zOpt = zTent, optUV = uvMid;
+        if (const Float zTent = NewtonSearch(cpRay, uvMid); Inside(uvMid, cur.uvB)) {
+            if (0 < zTent && zTent < zOpt) {
+                if (si == nullptr) return true;
+                zOpt = zTent, optUV = uvMid;
+            }
+            if (zTent < Infinity) {
+                const Vector2f delta = cur.uvB.Diagonal() * CuttingRatio * .5f;
+                cutUvB = pbrt::Intersect(Bounds2f(uvMid - delta, uvMid + delta), cur.uvB);
+            }
         }
-        uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
 
         // Divide the current patch into four pieces
         for (size_t i = 0; i < 4; ++i) {
-            Bounds2f divUvB(cur.uvB.Corner(i), uvMid);
+            Bounds2f divUvB(cur.uvB.Corner(i), cutUvB.Corner(CuttingNeighbor[i]));
+            if (divUvB.IsDegenerate()) continue;
 
             auto divCpRay = DivideBezierPatch(cpRay, divUvB);
             // Test ray against bound of divided patch
