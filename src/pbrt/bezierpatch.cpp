@@ -36,14 +36,13 @@
 
 namespace pbrt {
 
-static constexpr Float MinDeltaUV = 1e-5f;
+static constexpr Float MinDeltaUV = 1e-4f;
 
 static constexpr size_t MaxNewtonIterations = 5;
 static constexpr Float NewtonConvergenceThreshold = 1e-6f;
 
 static constexpr size_t CuttingNeighbor[4] = { 1, 3, 0, 2 };
-static constexpr Float CuttingRatioPositive = .2f;
-static constexpr Float CuttingRatioNegative = .05f;
+static constexpr Float CuttingRatio = .01f; // Use small ratio to avoid artifacts in parallel incidence
 
 // DividedPatch definition
 struct DividedPatch {
@@ -349,8 +348,9 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
         // Break if optimized.
         if (cur.zLower >= zOpt) break;
         heap.pop();
-        // Break if patch is too small
-        if (MinComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) break;
+        // Avoid too small patches.
+        if (MaxComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) break;
+        if (MinComponentValue(cur.uvB.Diagonal()) < MinDeltaUV) continue;
 
         // Set uv of the middle point
         Point2f uvMid = (cur.uvB.pMin + cur.uvB.pMax) / 2;
@@ -359,12 +359,12 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
 
         // Decide whether the Newton algorithm converges
         if (const Float zTent = NewtonSearch(cpRay, uvMid); Inside(uvMid, cur.uvB)) {
-            if (0 < zTent && zTent < zOpt) {
+            if (0 <= zTent && zTent < zOpt) {
                 if (si == nullptr) return true;
                 zOpt = zTent, optUV = uvMid;
             }
             if (zTent < Infinity) {
-                const Vector2f delta = cur.uvB.Diagonal() * (zTent > 0 ? CuttingRatioPositive : CuttingRatioNegative) * .5f;
+                const Vector2f delta = cur.uvB.Diagonal() * CuttingRatio * .5f;
                 cutUvB = pbrt::Intersect(Bounds2f(uvMid - delta, uvMid + delta), cur.uvB);
             }
         }
