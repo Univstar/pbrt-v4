@@ -1316,6 +1316,9 @@ class BezierPatch {
     bool GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
                                pstd::optional<ShapeIntersection> *si) const;
 
+    bool GreedyIntersectClipping(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
+                               pstd::optional<ShapeIntersection> *si) const;
+
     // Bezier Private Members
     bool reverseOrientation, transformSwapsHandedness;
     pstd::array<Point3f, 16> cp;

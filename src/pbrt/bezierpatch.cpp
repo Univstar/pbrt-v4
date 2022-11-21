@@ -59,13 +59,13 @@ struct DividedPatch {
 };
 
 // Bicubic Bezier Functions
-
-PBRT_CPU_GPU static Point3f BlossomBicubicBezier(pstd::span<const Point3f> cp, Point2f uv0, Point2f uv1, Point2f uv2) {
-    pstd::array<Point3f, 4> q;
+template <typename P>
+PBRT_CPU_GPU static P BlossomBicubicBezier(pstd::span<const P> cp, Point2f uv0, Point2f uv1, Point2f uv2) {
+    pstd::array<P, 4> q;
     for (size_t i = 0; i < 4; ++i) {
         q[i] = BlossomCubicBezier(cp.subspan(i * 4, 4), uv0.y, uv1.y, uv2.y);
     }
-    return BlossomCubicBezier<Point3f>(q, uv0.x, uv1.x, uv2.x);
+    return BlossomCubicBezier<P>(q, uv0.x, uv1.x, uv2.x);
 }
 
 PBRT_CPU_GPU static Point3f EvaluateBicubicBezier(pstd::span<const Point3f> cp, Point2f uv, Vector3f *dpdu = nullptr, Vector3f *dpdv = nullptr) {
@@ -107,10 +107,10 @@ PBRT_CPU_GPU static Point3f EvaluateBicubicBezier(pstd::span<const Point3f> cp, 
 }
 
 // Patch Functions
-
-PBRT_CPU_GPU static pstd::array<Point3f, 16> DivideBezierPatch(pstd::span<const Point3f> cp,
-                                                               const Bounds2f &uvB) {
-    pstd::array<Point3f, 16> divCp;
+template <typename P>
+PBRT_CPU_GPU static pstd::array<P, 16> DivideBezierPatch(pstd::span<const P> cp, 
+                                                         const Bounds2f &uvB) {
+    pstd::array<P, 16> divCp;
     divCp[0]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(0), uvB.Corner(0));
     divCp[1]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(0), uvB.Corner(2));
     divCp[2]  = BlossomBicubicBezier(cp, uvB.Corner(0), uvB.Corner(2), uvB.Corner(2));
@@ -285,7 +285,7 @@ bool BezierPatch::IntersectRay(const Ray &ray, Float tMax,
     if (!OverlapsRay(bounds, Length(ray.d) * tMax))
         return false;
     
-    return GreedyIntersectNewton(ray, tMax, cpRay, si);
+    return GreedyIntersectClipping(ray, tMax, cpRay, si);
 }
 
 bool BezierPatch::GreedyIntersect(const Ray &ray, Float tMax, pstd::span<const Point3f> cpRay,
@@ -392,6 +392,160 @@ bool BezierPatch::GreedyIntersectNewton(const Ray &ray, Float tMax, pstd::span<c
 #endif
     }
     return zOpt < Infinity;
+}
+
+std::array<Point2f, 16> SwapUV(pstd::span<const Point2f> cp) {
+    std::array<Point2f, 16> tmp;
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            tmp[i * 4 + j] = cp[j * 4 + i];
+        }
+    }
+    return tmp;
+}
+
+void BezierClipping(pstd::span<const Point2f> cp, Vector2f lu, Vector2f lv, Float ulen,
+                    Float umin, Float vlen, Float vmin, bool clipu, pstd::optional<Float> calculated,
+                    int times, std::vector<Point2f> &hits) {
+    // max recursive time
+    //if (times == 16) {
+    //    Float u = 0.5 * ulen + umin;
+    //    Float v = calculated == -1.0 ? 0.5 * vlen + vmin : calculated;
+    //    if (clipu) {
+    //        hits.emplace_back(u, v);
+    //    } else {
+    //        hits.emplace_back(v, u);
+    //    }
+    //    return;
+    //}
+
+    // bezier clipping, using convex calculate u_min, u_max
+    Float up[4] = {}, down[4] = {};
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            Float dist = cp[i * 4 + j].x * lu.y - cp[i * 4 + j].y * lu.x;
+            if (j == 0 || dist > up[i]) {
+                up[i] = dist;
+            }
+            if (j == 0 || dist < down[i]) {
+                down[i] = dist;
+            }
+        }
+    }
+    Float u_min = up[0] >= 0.0 && down[0] <= 0.0 ? 0.0 : 1.0;
+    Float u_max = up[3] >= 0.0 && down[3] <= 0.0 ? 1.0 : 0.0;
+    int pairs[6][2] = {{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3}};
+    for (int i = 0; i < 6; ++i) {
+        if (up[pairs[i][0]] * up[pairs[i][1]] <= 0.0) {
+            Float diff = up[pairs[i][1]] - up[pairs[i][0]];
+            if (diff == 0.0) {
+                u_min = std::min(u_min, pairs[i][0] / 3.0f);
+                u_max = std::max(u_max, pairs[i][1] / 3.0f);
+            } else {
+                Float k = (pairs[i][1] - pairs[i][0]) / 3.0 / diff;
+                Float b = pairs[i][0] / 3.0 - k * up[pairs[i][0]];
+                u_min = std::min(u_min, b);
+                u_max = std::max(u_max, b);
+            }
+        }
+        if (down[pairs[i][0]] * down[pairs[i][1]] <= 0.0) {
+            Float diff = down[pairs[i][1]] - down[pairs[i][0]];
+            if (diff == 0.0) {
+                u_min = std::min(u_min, pairs[i][0] / 3.0f);
+                u_max = std::max(u_max, pairs[i][1] / 3.0f);
+            } else {
+                Float k = (pairs[i][1] - pairs[i][0]) / 3.0 / diff;
+                Float b = pairs[i][1] / 3.0 - k * down[pairs[i][1]];
+                u_min = std::min(u_min, b);
+                u_max = std::max(u_max, b);
+            }
+        }
+    }
+    if (u_max < u_min) {
+        return;
+    }
+
+    bool swap = !calculated.has_value();
+    if (u_max - u_min > 0.8) { // divide by half
+        auto cp_l = DivideBezierPatch(cp, Bounds2f(Point2f(0.0, 0.0), Point2f(0.5, 1.0)));
+        auto cp_r = DivideBezierPatch(cp, Bounds2f(Point2f(0.5, 0.0), Point2f(1.0, 1.0)));
+        if (swap) {
+            auto rev_l = SwapUV(cp_l);
+            auto rev_r = SwapUV(cp_r);
+            BezierClipping(rev_l, lv, lu, vlen, vmin, ulen * 0.5, umin, !clipu, -1.0,
+                           times + 1, hits);
+            BezierClipping(rev_r, lv, lu, vlen, vmin, ulen * 0.5, umin + ulen * 0.5,
+                           !clipu, -1.0, times + 1, hits);
+        } else {
+            BezierClipping(cp_l, lu, lv, ulen * 0.5, umin, vlen, vmin, clipu, calculated,
+                           times + 1, hits);
+            BezierClipping(cp_r, lu, lv, ulen * 0.5, umin + ulen * 0.5, vlen, vmin, clipu,
+                           calculated, times + 1, hits);
+        }
+    } else { // divide by u_min, u_max
+        Float u_len = u_max - u_min;
+        bool stop = u_len * ulen < MinDeltaUV;
+        if (stop) {
+            Float u = 0.5 * (u_min + u_max) * ulen + umin;
+            if (calculated.has_value()) {
+                if (clipu) {
+                    hits.emplace_back(u, calculated.value());
+                } else {
+                    hits.emplace_back(calculated.value(), u);
+                }
+                return;
+            }
+            calculated = u;
+        }
+        auto cp_new =
+            DivideBezierPatch(cp, Bounds2f(Point2f(u_min, 0.0), Point2f(u_max, 1.0)));
+        if (swap) {
+            auto rev_new = SwapUV(cp_new);
+            BezierClipping(rev_new, lv, lu, vlen, vmin, ulen * u_len, ulen * u_min + umin,
+                           !clipu, calculated, times + 1, hits);
+        } else {
+            BezierClipping(cp_new, lu, lv, ulen * u_len, ulen * u_min + umin, vlen, vmin,
+                           clipu, calculated, times + 1, hits);
+        }
+    }
+}
+
+bool BezierPatch::GreedyIntersectClipping(const Ray &ray, Float tMax,
+                                          pstd::span<const Point3f> cpRay,
+                                          pstd::optional<ShapeIntersection>* si) const {
+    std::array<Point2f, 16> cpP;
+    for (int i = 0; i < 16; ++i) {
+        cpP[i] = Point2f(cpRay[i].x, cpRay[i].y);
+    }
+    Vector2f lu = Normalize((cpP[3] - cpP[0]) + (cpP[15] - cpP[12]));
+    Vector2f lv = Normalize((cpP[12] - cpP[0]) + (cpP[15] - cpP[3]));
+    std::vector<Point2f> hits;
+    BezierClipping(cpP, lu, lv, 1.0, 0.0, 1.0, 0.0, true, {}, 0, hits);
+    if (hits.empty()) {
+        return false;
+    }
+    Float tmin = Infinity;
+    Point2f uv;
+    for (auto &inter : hits) {
+        Point3f pHit = EvaluateBicubicBezier(cp, inter);
+        Float rayLength = Length(ray.d);
+        Float t = Dot(pHit - ray.o, ray.d) / rayLength;
+        if (t < 0) {
+            continue;
+        }
+        if (t < tmin && t < tMax) {
+            tmin = t;
+            uv = inter;
+        }
+    }
+    if (tmin == Infinity) {
+        return false;
+    }
+    if (si != nullptr) {
+        const auto intr = InteractionFromIntersection(ray, uv);
+        *si = ShapeIntersection{intr, tmin};
+    }
+    return true;
 }
 
 }
